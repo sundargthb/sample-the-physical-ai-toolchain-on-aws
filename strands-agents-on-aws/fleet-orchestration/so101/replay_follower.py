@@ -1,7 +1,9 @@
-"""PLUMBING TEST ONLY: an SO-101 follower with no hardware. Its motors and cameras replay one real recorded episode from the
+"""PLUMBING TEST ONLY: an SO-101 follower with no hardware. Its motors and cameras replay one real recorded episode
+from the
 arm's own dataset (states and camera frames as recorded), so the ACT checkpoint sees real images; commands are
 counted, not executed. The arm therefore does NOT follow the policy: this tests plumbing, rules and timing, not
 pick success (say so wherever its numbers are quoted)."""
+
 from __future__ import annotations
 
 import os
@@ -14,16 +16,21 @@ NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_rol
 class Replay:
     def __init__(self, ds_id: str, episode: int, cams: list[str]):
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
         root = os.path.expanduser(f"~/.cache/huggingface/lerobot/{ds_id}")
         ds = LeRobotDataset(ds_id, root=root, episodes=[episode])
         a, b = int(ds.meta.episodes["dataset_from_index"][episode]), int(ds.meta.episodes["dataset_to_index"][episode])
         self.states, self.images, self.k = [], {c: [] for c in cams}, 0
-        start = int(os.environ.get("FAKE_START", 0))  # a later start replays the post-pick rest: a pick that never happens
+        start = int(
+            os.environ.get("FAKE_START", 0)
+        )  # a later start replays the post-pick rest: a pick that never happens
         for i in range(start, b - a):
             item = ds[i]
             self.states.append(item["observation.state"].numpy().astype(float))
             for c in cams:
-                self.images[c].append((item[f"observation.images.{c}"].permute(1, 2, 0).numpy() * 255).round().astype(np.uint8))
+                self.images[c].append(
+                    (item[f"observation.images.{c}"].permute(1, 2, 0).numpy() * 255).round().astype(np.uint8)
+                )
 
     def state(self) -> dict:
         return dict(zip(NAMES, self.states[min(self.k, len(self.states) - 1)]))
@@ -76,7 +83,8 @@ class ReplayFollower:
         self.actions, self.is_connected = 0, False
 
     def connect(self, calibrate: bool = False) -> None:
-        self.bus.connect(); self.is_connected = True
+        self.bus.connect()
+        self.is_connected = True
 
     def get_observation(self) -> dict:
         obs = {f"{n}.pos": v for n, v in self.replay.state().items()}

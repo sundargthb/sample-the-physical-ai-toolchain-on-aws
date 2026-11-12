@@ -1,4 +1,5 @@
 """Run inside a container: print one /joint_states message as JSON (an independent read, not through the robot host)."""
+
 import json
 import rclpy
 from sensor_msgs.msg import JointState

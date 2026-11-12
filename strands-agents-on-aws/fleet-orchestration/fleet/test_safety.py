@@ -3,6 +3,7 @@ against a copy with that one rule removed (must fail), so each test is shown to 
 
   python -m pytest -q test_safety.py
 """
+
 import time
 import types
 
@@ -83,7 +84,13 @@ def rule_bounded_motion(d):
         d.act({"j1": 0.3}, 600, "planner")
 
 
-RULES = [rule_refuse_not_clamp, rule_estop_latches, rule_resume_needs_operator_signature, rule_watchdog_holds, rule_bounded_motion]
+RULES = [
+    rule_refuse_not_clamp,
+    rule_estop_latches,
+    rule_resume_needs_operator_signature,
+    rule_watchdog_holds,
+    rule_bounded_motion,
+]
 
 
 @pytest.mark.parametrize("rule", RULES, ids=lambda r: r.__name__)
@@ -93,6 +100,7 @@ def test_rule_holds(rule):
 
 def test_a_check_that_cannot_measure_is_not_done_and_frees_the_robot():
     """Finished is not done: a check that raises is a failed check. It must not leave the skill "running" forever."""
+
     def broken():
         raise RuntimeError("camera offline")
 
@@ -108,6 +116,7 @@ def test_a_check_that_cannot_measure_is_not_done_and_frees_the_robot():
 def test_a_body_that_fails_mid_motion_ends_the_task_as_a_fault_and_frees_the_robot():
     """A body that raises while it moves (a bus error, or a body that moves by skills only, like the notebook's yard
     robots) must not leave the task "running" for good: the robot holds, says why, and takes its next command."""
+
     class SkillsOnly(FakeArm):
         holds = 0
 
@@ -164,8 +173,13 @@ class Unbounded(Device):
             robot_host.MAX_S = saved
 
 
-MUTANTS = {rule_refuse_not_clamp: NoRangeCheck, rule_estop_latches: NoLatch, rule_resume_needs_operator_signature: NameIsEnough,
-           rule_watchdog_holds: NoWatchdog, rule_bounded_motion: Unbounded}
+MUTANTS = {
+    rule_refuse_not_clamp: NoRangeCheck,
+    rule_estop_latches: NoLatch,
+    rule_resume_needs_operator_signature: NameIsEnough,
+    rule_watchdog_holds: NoWatchdog,
+    rule_bounded_motion: Unbounded,
+}
 
 
 @pytest.mark.parametrize("rule", RULES, ids=lambda r: r.__name__)

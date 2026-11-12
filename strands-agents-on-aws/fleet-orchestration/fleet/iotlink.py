@@ -4,6 +4,7 @@ Topics, all under a tenant prefix: <tenant>/presence/<device> (heartbeat), <tena
 <tenant>/reply/<client> (replies to one caller). The test signs with SigV4 (IAM); production robots use one X.509
 certificate per thing (mqtt5_client_builder.mtls_from_path) with an IoT policy scoped to their own topics.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ from typing import Any, Callable
 from awscrt import auth, mqtt5
 from awsiot import mqtt5_client_builder
 
+
 def _region() -> str:
     """The sample's one Region rule, the same as deploy.py, launch.py and the notebook: AWS_REGION, else us-west-2."""
     return os.environ.get("AWS_REGION", "us-west-2")
@@ -28,12 +30,19 @@ def _endpoint(region: str) -> str:
     if os.environ.get("IOT_ENDPOINT"):
         return os.environ["IOT_ENDPOINT"]
     import boto3
+
     return boto3.client("iot", region_name=region).describe_endpoint(endpointType="iot:Data-ATS")["endpointAddress"]
 
 
 class Link:
-    def __init__(self, client_id: str, tenant: str = "site", region: str | None = None, endpoint: str | None = None,
-                 will: str | None = None):
+    def __init__(
+        self,
+        client_id: str,
+        tenant: str = "site",
+        region: str | None = None,
+        endpoint: str | None = None,
+        will: str | None = None,
+    ):
         """`will`: a topic whose retained message IoT Core clears (a retained empty payload) if this connection drops
         without a clean disconnect. IoT Core sends no Will on a clean disconnect, so the owner clears it itself."""
         self.client_id, self.tenant, self._subs, self._waiting = client_id, tenant, {}, {}
@@ -41,13 +50,25 @@ class Link:
         region = region or _region()  # the endpoint and the SigV4 signature must name the same Region
         self.region, self.endpoint = region, endpoint or _endpoint(region)
         up = Future()
-        connect = mqtt5.ConnectPacket(will=mqtt5.PublishPacket(topic=will, payload=b"", qos=mqtt5.QoS.AT_LEAST_ONCE, retain=True)) if will else None
+        connect = (
+            mqtt5.ConnectPacket(
+                will=mqtt5.PublishPacket(topic=will, payload=b"", qos=mqtt5.QoS.AT_LEAST_ONCE, retain=True)
+            )
+            if will
+            else None
+        )
         self.client = mqtt5_client_builder.websockets_with_default_aws_signing(
-            endpoint=self.endpoint, region=region, credentials_provider=auth.AwsCredentialsProvider.new_default_chain(),
-            client_id=client_id, clean_start=True, keep_alive_secs=30, connect_options=connect,
+            endpoint=self.endpoint,
+            region=region,
+            credentials_provider=auth.AwsCredentialsProvider.new_default_chain(),
+            client_id=client_id,
+            clean_start=True,
+            keep_alive_secs=30,
+            connect_options=connect,
             on_publish_received=self._on_message,
             on_lifecycle_connection_success=lambda _e: self._connected(up),
-            on_lifecycle_connection_failure=lambda e: up.done() or up.set_exception(RuntimeError(str(e.exception))))
+            on_lifecycle_connection_failure=lambda e: up.done() or up.set_exception(RuntimeError(str(e.exception))),
+        )
         self.client.start()
         up.result(timeout=20)
         self.subscribe(f"{tenant}/reply/{client_id}", self._on_reply)
@@ -55,7 +76,7 @@ class Link:
     def _connected(self, up: Future) -> None:
         """Every successful connection. clean_start=True means a reconnect starts a new session with NO
         subscriptions: without this, a robot that reconnects after a network blip keeps publishing presence (it
-        looks online) but never hears another command (2026-11-09, ros-arm-2)."""
+        looks online) but never hears another command."""
         if up.done():
             for topic in list(self._subs):
                 self.client.subscribe(mqtt5.SubscribePacket([mqtt5.Subscription(topic, mqtt5.QoS.AT_LEAST_ONCE)]))
@@ -70,12 +91,16 @@ class Link:
         first = topic not in self._subs
         self._subs.setdefault(topic, []).append(handler)
         if first:
-            self.client.subscribe(mqtt5.SubscribePacket([mqtt5.Subscription(topic, mqtt5.QoS.AT_LEAST_ONCE)])).result(10)
+            self.client.subscribe(mqtt5.SubscribePacket([mqtt5.Subscription(topic, mqtt5.QoS.AT_LEAST_ONCE)])).result(
+                10
+            )
 
     def publish(self, topic: str, body: dict | None, retain: bool = False) -> None:
         """`body=None` sends an empty payload: with `retain=True` that deletes the topic's retained message."""
         payload = b"" if body is None else json.dumps(body).encode()
-        self.client.publish(mqtt5.PublishPacket(topic=topic, payload=payload, qos=mqtt5.QoS.AT_LEAST_ONCE, retain=retain))
+        self.client.publish(
+            mqtt5.PublishPacket(topic=topic, payload=payload, qos=mqtt5.QoS.AT_LEAST_ONCE, retain=retain)
+        )
 
     def _on_message(self, data: Any) -> None:
         topic = data.publish_packet.topic
@@ -98,12 +123,16 @@ class Link:
         """One request, one reply. No reply means the device is offline or unreachable: nothing is queued or retried."""
         rid = uuid.uuid4().hex
         fut = self._waiting[rid] = Future()
-        self.publish(f"{self.tenant}/{device}/rpc/{rpc}", {"id": rid, "from": self.client_id, "args": args, "ts": time.time()})
+        self.publish(
+            f"{self.tenant}/{device}/rpc/{rpc}", {"id": rid, "from": self.client_id, "args": args, "ts": time.time()}
+        )
         try:
             body = fut.result(timeout=timeout)
         except TimeoutError:
             self._waiting.pop(rid, None)
-            raise ConnectionError(f"{device} did not answer {rpc} within {timeout:g} s (offline or unreachable); nothing was queued")
+            raise ConnectionError(
+                f"{device} did not answer {rpc} within {timeout:g} s (offline or unreachable); nothing was queued"
+            )
         if "error" in body:
             raise RuntimeError(f"{device} refused {rpc}: {body['error']}")
         return body["result"]

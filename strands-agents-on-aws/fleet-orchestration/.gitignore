@@ -9,3 +9,4 @@ so101/preflight_*.jpg
 __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
+.ruff_cache/

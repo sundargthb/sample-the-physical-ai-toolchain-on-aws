@@ -11,6 +11,8 @@ This is the hosted-runtime and IoT Core fleet path that this component's README 
 Pollen Robotics Microduck walkers) end to end, with its outputs saved from a full run. The same robot host drives two
 real SO-101 arms through LeRobot; that code is in `so101/`.
 
+![What the notebook runs: the operator, the planner on AgentCore Runtime, Amazon Bedrock, AWS IoT Core, and the ROS 2 arm and MuJoCo yard on your machine](architecture.png)
+
 ## What is here
 
 | Folder | What it holds |
@@ -18,8 +20,8 @@ real SO-101 arms through LeRobot; that code is in `so101/`.
 | `fleet/` | The fleet layer: `iotlink.py` (request and reply over AWS IoT Core), `robot_host.py` (the robot host and its five rules), `planner.py` (the Strands Agents planner and its eight tools, with no resume tool), and the operator's scripts: `make_operator_key.py`, `approve.py`, `resume.py`, `send_goal.py`. `test_safety.py` has one test per rule. |
 | `planner_runtime/` | The planner's container for AgentCore Runtime, and `deploy.py` and `teardown.py`. |
 | `ros2/` | The ROS 2 inspection arm (ros2_control with mock hardware) and `launch.py`, which starts it with its robot host. |
-| `yard/` | `site_runner.py`, which steps the shared simulated yard. |
-| `so101/` | The SO-101 robot host (`arm_host.py`), its LeRobot body, `arms.example.json`, a no-hardware plumbing test, and `JETSON.md` for running a host on an NVIDIA Jetson Orin Nano. |
+| `yard/` | `sim_yard.py` (the simulated yard and its robots, and `run_goal`, which sends a goal and films it) and `site_runner.py`, which steps the shared world. |
+| `so101/` | The SO-101 robot host (`arm_host.py`), its LeRobot body, `arms.example.json`, and a no-hardware plumbing check. See `so101/README.md`. |
 
 ## Set up
 
@@ -63,14 +65,8 @@ credentials; in production, give each robot its own X.509 certificate.
 
 ## Add the SO-101 packing cell
 
-    cp so101/arms.example.json so101/arms.json    # your ports, calibration ids and camera indices
-    pip install "lerobot[feetech]==0.6.1"
-    ARM=arm-1 python so101/arm_host.py --preflight
-    ARM=arm-1 python so101/arm_host.py            # and ARM=arm-2 in a second terminal
-
-Each arm loads its ACT checkpoint from the Hugging Face Hub at start-up and runs it on the robot host at 30 Hz. The
-two checkpoints in `arms.example.json` were trained on our arms, with each part on one marked spot. For your own arms,
-record and train your own, and set `policy` and `poses.json` to match.
+See [`so101/README.md`](so101/README.md): the arm host, the example checkpoints and datasets on the Hugging Face Hub, and
+the no-hardware test.
 
 ## Clean up
 

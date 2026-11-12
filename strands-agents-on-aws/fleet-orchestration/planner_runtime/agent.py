@@ -1,4 +1,6 @@
-"""The fleet planner on Amazon Bedrock AgentCore Runtime: a Strands Agents agent whose tools talk to the robots over AWS IoT Core."""
+"""The fleet planner on Amazon Bedrock AgentCore Runtime: a Strands Agents agent whose tools talk to the robots over
+AWS IoT Core."""
+
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 from planner import plan

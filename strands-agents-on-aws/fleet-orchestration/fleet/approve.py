@@ -6,6 +6,7 @@
 The answer is signed over "<device>:<request>:<decision>" with the operator's key. The planner's role is denied this
 topic, and the robot ignores an answer without a valid signature.
 """
+
 import os
 import sys
 import time
@@ -34,7 +35,9 @@ try:
         decision = "approve" if input(ask).strip().lower() == "y" else "deny"
     rid = st["request"]
     sig = key.sign(f"{dev}:{rid}:{decision}".encode()).hex()
-    link.publish(f"{TENANT}/{dev}/approval", {"request": rid, "decision": decision, "operator": OPERATOR, "signature": sig})
+    link.publish(
+        f"{TENANT}/{dev}/approval", {"request": rid, "decision": decision, "operator": OPERATOR, "signature": sig}
+    )
     time.sleep(0.8)
     print(decision, "sent for", dev, "| status now:", link.call(dev, "status"))
 finally:

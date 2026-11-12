@@ -1,4 +1,5 @@
 """The planner's side: Strands Agents @tool functions over AWS IoT Core. There is deliberately no resume tool."""
+
 from __future__ import annotations
 
 import json
@@ -13,15 +14,17 @@ from iotlink import Link
 
 SYSTEM = (
     "You coordinate a robot fleet. list_devices shows each robot's zone and skills; describe gives its joints, "
-    "limits, and what each skill does. Map each part of the goal to a robot in the right zone that offers the skill, start it with run_skill "
-    "(or act for an explicit joint move), and poll skill_status until it ends. Robots may work in parallel. If a robot "
-    "stops answering mid-task its outcome is UNKNOWN: say so, then reassign to a robot in the SAME zone that offers "
-    "the skill, or report it undone. A skill acts where its robot stands. A finished skill may report a check (its "
-    "postcondition): if check.ok is false the task is NOT done; say what the check saw. You can e-stop; you "
-    "cannot resume: only a human operator can. For several skills on one robot in order, use run_sequence (one "
-    "call per robot; robots may run their sequences in parallel). After starting single skills, call wait_for_skill on each robot (not "
-    "skill_status in a loop) and report only after every skill you started has ended. awaiting_approval means a "
-    "human operator is deciding: it is not a failure; never re-send the skill or start another on that robot. Report what no robot can do. Report only what the tools said. Be short."
+    'limits, and what each skill does. Map each part of the goal to a robot in the right zone that offers the '
+    'skill, start it with run_skill (or act for an explicit joint move), and poll skill_status until it ends. '
+    'Robots may work in parallel. If a robot stops answering mid-task its outcome is UNKNOWN: say so, then '
+    'reassign to a robot in the SAME zone that offers the skill, or report it undone. A skill acts where its '
+    'robot stands. A finished skill may report a check (its postcondition): if check.ok is false the task is NOT '
+    'done; say what the check saw. You can e-stop; you cannot resume: only a human operator can. For several '
+    'skills on one robot in order, use run_sequence (one call per robot; robots may run their sequences in '
+    'parallel). After starting single skills, call wait_for_skill on each robot (not skill_status in a loop) and '
+    'report only after every skill you started has ended. awaiting_approval means a human operator is deciding: '
+    'it is not a failure; never re-send the skill or start another on that robot. Report what no robot can do. '
+    'Report only what the tools said. Be short.'
 )
 
 
@@ -46,7 +49,7 @@ class Fleet:
     def _on_disconnected(self, _topic: str, body: dict) -> None:
         cid = str(body.get("clientId", ""))
         if cid.startswith("robot-"):
-            self.present.pop(cid[len("robot-"):], None)
+            self.present.pop(cid[len("robot-") :], None)
 
     def _seed(self) -> None:
         """Read the retained descriptions already there. IoT Core does not deliver a retained message to a wildcard
@@ -167,17 +170,32 @@ class Fleet:
                 try:
                     call(device, "skill", name=name)
                 except Exception as exc:
-                    results.append({"skill": name, "started": False, "error": str(exc)[:160]}); break
+                    results.append({"skill": name, "started": False, "error": str(exc)[:160]})
+                    break
                 end, st = time.time() + float(timeout_s), None
                 while time.time() < end:
                     st = self.link.call(device, "status")
                     if not st.get("running") and st.get("state") != "awaiting_approval":
                         break
                     time.sleep(0.5)
-                results.append({"skill": name, "started": True, "stopped_by": (st or {}).get("stopped_by"), "check": (st or {}).get("check")})
+                results.append(
+                    {
+                        "skill": name,
+                        "started": True,
+                        "stopped_by": (st or {}).get("stopped_by"),
+                        "check": (st or {}).get("check"),
+                    }
+                )
                 if (st or {}).get("stopped_by") != "done" or ((st or {}).get("check") or {}).get("ok") is False:
                     break
-            return json.dumps({"device": device, "requested": len(skills), "ran": sum(r["started"] for r in results), "results": results})
+            return json.dumps(
+                {
+                    "device": device,
+                    "requested": len(skills),
+                    "ran": sum(r["started"] for r in results),
+                    "results": results,
+                }
+            )
 
         @tool
         def emergency_stop(device: str) -> str:
@@ -201,19 +219,35 @@ def plan(goal: str, model: str = "us.anthropic.claude-sonnet-5-5", min_devices: 
         found = fleet.devices(min_count=int(min_devices))
         t_disc = time.perf_counter() - t0
         # Pin the goal: the default window keeps the last 40 messages, and a long order (approvals, waits) can push the
-        # user's goal itself out of the model's context (2026-11-09: a dispatch went missing from the reply's record).
+        # user's goal itself out of the model's context.
         # pin_first needs strands-agents 1.43 or later; an older install fails here with a TypeError.
-        agent = Agent(model=model, system_prompt=SYSTEM, tools=fleet.tools(), callback_handler=None,
-                      conversation_manager=SlidingWindowConversationManager(window_size=200, pin_first=1))
+        agent = Agent(
+            model=model,
+            system_prompt=SYSTEM,
+            tools=fleet.tools(),
+            callback_handler=None,
+            conversation_manager=SlidingWindowConversationManager(window_size=200, pin_first=1),
+        )
         reply = str(agent(goal)).strip()
         calls = [{"tool": c["rpc"], **{k: v for k, v in c.items() if k != "rpc"}} for c in fleet.calls]
-        errors = [b["toolResult"]["content"][0].get("text", "")[:200] for m in agent.messages for b in m["content"]
-                  if "toolResult" in b and b["toolResult"].get("status") == "error"]
+        errors = [
+            b["toolResult"]["content"][0].get("text", "")[:200]
+            for m in agent.messages
+            for b in m["content"]
+            if "toolResult" in b and b["toolResult"].get("status") == "error"
+        ]
         sent = {}
         for c in fleet.calls:  # what each robot was actually sent, from the ledger, not from the model's account
             if c["rpc"] == "skill" and c.get("ok"):
                 sent.setdefault(c["device"], []).append(c.get("name"))
-        return {"reply": reply, "devices": [d["device"] for d in found], "calls": calls, "errors": errors, "ledger_skills_sent": sent,
-                "discover_s": round(t_disc, 2), "total_s": round(time.perf_counter() - t0, 2)}
+        return {
+            "reply": reply,
+            "devices": [d["device"] for d in found],
+            "calls": calls,
+            "errors": errors,
+            "ledger_skills_sent": sent,
+            "discover_s": round(t_disc, 2),
+            "total_s": round(time.perf_counter() - t0, 2),
+        }
     finally:
         fleet.close()

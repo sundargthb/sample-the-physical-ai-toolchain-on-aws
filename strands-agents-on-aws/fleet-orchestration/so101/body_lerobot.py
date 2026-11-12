@@ -3,6 +3,7 @@
 Units are LeRobot's: joints in calibrated degrees, gripper 0..100. The pick skill's ACT checkpoint runs HERE, on the
 robot host, at 30 Hz; the planner only names the skill.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,9 +39,18 @@ def make_follower(port: str, cal_id: str, cameras: dict, max_relative_target: fl
     from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
     from lerobot.robots.so_follower.so_follower import SO101Follower
 
-    cams = {k: OpenCVCameraConfig(index_or_path=v["index"], width=v["w"], height=v["h"], fps=30) for k, v in cameras.items()}
-    return SO101Follower(SO101FollowerConfig(port=port, id=cal_id, cameras=cams, max_relative_target=max_relative_target,
-                                             disable_torque_on_disconnect=True))
+    cams = {
+        k: OpenCVCameraConfig(index_or_path=v["index"], width=v["w"], height=v["h"], fps=30) for k, v in cameras.items()
+    }
+    return SO101Follower(
+        SO101FollowerConfig(
+            port=port,
+            id=cal_id,
+            cameras=cams,
+            max_relative_target=max_relative_target,
+            disable_torque_on_disconnect=True,
+        )
+    )
 
 
 class PickPolicy:
@@ -49,8 +59,12 @@ class PickPolicy:
 
     def __init__(self, repo: str, cams: list[str], device: str | None = None):
         import torch
-        device = device or os.environ.get("POLICY_DEVICE") or (
-            "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+
+        device = (
+            device
+            or os.environ.get("POLICY_DEVICE")
+            or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+        )
         from lerobot.policies.act.modeling_act import ACTPolicy
         from lerobot.policies.factory import make_pre_post_processors
 
@@ -58,8 +72,9 @@ class PickPolicy:
         self.policy = ACTPolicy.from_pretrained(repo).to(device).eval()
         self.policy.config.device = device
         ov = {"device_processor": {"device": device}}
-        self.pre, self.post = make_pre_post_processors(self.policy.config, pretrained_path=repo, preprocessor_overrides=ov,
-                                                       postprocessor_overrides=ov)
+        self.pre, self.post = make_pre_post_processors(
+            self.policy.config, pretrained_path=repo, preprocessor_overrides=ov, postprocessor_overrides=ov
+        )
 
     def reset(self) -> None:
         self.policy.reset()
@@ -68,7 +83,9 @@ class PickPolicy:
         t = self.torch
         batch = {"observation.state": t.tensor([[float(obs[f"{n}.pos"]) for n in NAMES]], dtype=t.float32)}
         for c in self.cams:
-            batch[f"observation.images.{c}"] = t.from_numpy(np.ascontiguousarray(obs[c])).permute(2, 0, 1).float()[None] / 255.0
+            batch[f"observation.images.{c}"] = (
+                t.from_numpy(np.ascontiguousarray(obs[c])).permute(2, 0, 1).float()[None] / 255.0
+            )
         batch["task"] = [task]
         with t.no_grad():
             return np.asarray(self.post(self.policy.select_action(self.pre(batch))).cpu()).reshape(-1)
@@ -101,7 +118,9 @@ class SO101Body:
         for j, v in targets.items():
             lo, hi = env[j]
             if not lo <= float(v) <= hi:
-                return f"refused: the policy asked {j}={float(v):.1f} outside its demonstrated range [{lo}, {hi}]; holding"
+                return (
+                    f"refused: the policy asked {j}={float(v):.1f} outside its demonstrated range [{lo}, {hi}]; holding"
+                )
         return None
 
     def run_policy(self, spec: dict, seconds: float, why_stop) -> str | None:
@@ -112,8 +131,10 @@ class SO101Body:
         for i in range(1, ramp + 1):
             why = why_stop()
             if why:
-                self.hold(); return why
-            u = i / ramp; s = 3 * u * u - 2 * u * u * u
+                self.hold()
+                return why
+            u = i / ramp
+            s = 3 * u * u - 2 * u * u * u
             self.command({j: start[j] + (self.rest[j] - start[j]) * s for j in NAMES})
             time.sleep(1 / HZ)
         self.policy.reset()
@@ -121,13 +142,15 @@ class SO101Body:
         while time.monotonic() < t_end:
             why = why_stop()
             if why:
-                self.hold(); return why
+                self.hold()
+                return why
             obs = self.robot.get_observation()
             self.trace.append((float(obs["shoulder_pan.pos"]), float(obs["gripper.pos"])))
             targets = dict(zip(NAMES, self.policy.act(obs, self.task).tolist()))
             bad = self._check_range(targets)
             if bad:
-                self.hold(); return bad
+                self.hold()
+                return bad
             self.command(targets)
             nxt += 1 / HZ
             time.sleep(max(0.0, nxt - time.monotonic()))
@@ -139,9 +162,12 @@ class SO101Body:
         0.5 s, then reopened (>15) with the pan within the release range this arm used in its demonstrations. It says
         the motion of a successful pick happened; it cannot see whether the part landed in the bin."""
         p = POSES[self.arm]
-        lo, hi = p["hold_range"]; open_above = p["open_above"]
-        pan_lo, pan_hi = p["release_pan_p5_p95"]; pan_lo, pan_hi = pan_lo - 8, pan_hi + 8
-        best = run = 0; end = None
+        lo, hi = p["hold_range"]
+        open_above = p["open_above"]
+        pan_lo, pan_hi = p["release_pan_p5_p95"]
+        pan_lo, pan_hi = pan_lo - 8, pan_hi + 8
+        best = run = 0
+        end = None
         for i, (_, g) in enumerate(self.trace):
             run = run + 1 if lo <= g <= hi else 0
             if run > best:
@@ -149,5 +175,10 @@ class SO101Body:
         held_s = best / HZ
         release = next(((pan, g) for pan, g in self.trace[end:] if g > open_above), None) if end is not None else None
         ok = held_s >= 0.5 and release is not None and pan_lo <= release[0] <= pan_hi
-        return {"ok": bool(ok), "heuristic": "joint signature of a pick, not a camera on the bin", "held_s": round(held_s, 2),
-                "release_pan": None if release is None else round(release[0], 1), "expected_release_pan": [pan_lo, pan_hi]}
+        return {
+            "ok": bool(ok),
+            "heuristic": "joint signature of a pick, not a camera on the bin",
+            "held_s": round(held_s, 2),
+            "release_pan": None if release is None else round(release[0], 1),
+            "expected_release_pan": [pan_lo, pan_hi],
+        }

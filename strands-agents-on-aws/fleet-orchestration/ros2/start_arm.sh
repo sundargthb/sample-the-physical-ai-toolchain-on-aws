@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ros2_control mock arm: robot_state_publisher (latched /robot_description), controller_manager, two spawners.
-# The URDF goes in through a params file: as a -p argument rcl's argument parser rejects the XML (measured).
+# The URDF goes in through a params file: as a -p argument rcl's argument parser rejects the XML.
 set -e
 source /opt/ros/jazzy/setup.bash
 python3 - <<'PY'

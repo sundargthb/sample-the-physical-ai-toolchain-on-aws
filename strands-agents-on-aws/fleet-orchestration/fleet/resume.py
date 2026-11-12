@@ -6,6 +6,7 @@ and its role is denied the resume topic.
 It reads the current stop's epoch from the robot and signs "<device>:<epoch>", so a signature can't be replayed
 against a later stop.
 """
+
 import os
 import sys
 import uuid

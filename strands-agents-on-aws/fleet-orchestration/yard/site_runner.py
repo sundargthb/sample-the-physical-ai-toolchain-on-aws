@@ -2,10 +2,12 @@
 
 Each robot that runs its own control loop in a shared world steps the shared physics, so every policy sees time
 jump and the robots fall (RUNLOG T3). Calling world.run(..., steps=1) per tick does not work either: each call
-starts a fresh run, so stateful policies restart every step (measured: the duck walked 0.108 m instead of 0.397 m
-and fell). Here one world.run() covers the whole session, and each robot's policy is a Switchboard that delegates
+starts a fresh run, so stateful policies would restart every step
+and a walker falls. Here one world.run() covers the whole session, and each robot's policy is a Switchboard that
+delegates
 to whichever skill that robot is running now, or to its standing skill when idle.
 """
+
 from __future__ import annotations
 
 import threading
@@ -33,7 +35,7 @@ class Switchboard(PolicyBase):
         self._lock = threading.Lock()
         self.last: dict[str, Any] = {"name": None, "running": False}
         # The run loop reads these hooks ONCE before step one, from this object: forward the stand skill's, or the
-        # G1 runs with default PD gains instead of the ones holosoma was trained with (measured: it fell, z 0.09).
+        # G1 runs with default PD gains instead of the ones holosoma was trained with, and falls.
         for hook in ("gains", "start_pose", "start_seconds", "hz"):
             if getattr(self._stand, hook, None) is not None:
                 setattr(self, hook, getattr(self._stand, hook))
@@ -56,7 +58,13 @@ class Switchboard(PolicyBase):
     def stop(self, why: str = "stopped") -> None:
         with self._lock:
             if self._cur is not None:
-                self.last = {"name": self._name, "running": False, "steps": self._steps, "stopped_by": why, "fault": None}
+                self.last = {
+                    "name": self._name,
+                    "running": False,
+                    "steps": self._steps,
+                    "stopped_by": why,
+                    "fault": None,
+                }
             self._cur = None
             self._stand.reset()
 
@@ -64,7 +72,13 @@ class Switchboard(PolicyBase):
         with self._lock:
             cur = self._cur
             if cur is not None and self._left <= 0:
-                self.last = {"name": self._name, "running": False, "steps": self._steps, "stopped_by": "seconds", "fault": None}
+                self.last = {
+                    "name": self._name,
+                    "running": False,
+                    "steps": self._steps,
+                    "stopped_by": "seconds",
+                    "fault": None,
+                }
                 self._cur, cur = None, None
                 self._stand.reset()
             if cur is not None:
@@ -75,14 +89,23 @@ class Switchboard(PolicyBase):
         env = self.envelopes.get(self._spec) if cur is not None else None
         if env is not None and action is not None:
             import numpy as np
+
             a = np.asarray(action, float)
-            bad = [(env["keys"][i], float(a[i]), env["lo"][i], env["hi"][i]) for i in range(len(a))
-                   if not env["lo"][i] <= a[i] <= env["hi"][i]]
+            bad = [
+                (env["keys"][i], float(a[i]), env["lo"][i], env["hi"][i])
+                for i in range(len(a))
+                if not env["lo"][i] <= a[i] <= env["hi"][i]
+            ]
             if bad:  # a policy commanding outside its own behaviour: stop the skill, stand, and say why
                 k, v, lo, hi = bad[0]
                 with self._lock:
-                    self.last = {"name": self._name, "running": False, "steps": self._steps,
-                                 "stopped_by": f"fault: {k}={v:.3f} outside the skill's envelope [{lo:.3f}, {hi:.3f}]", "fault": True}
+                    self.last = {
+                        "name": self._name,
+                        "running": False,
+                        "steps": self._steps,
+                        "stopped_by": f"fault: {k}={v:.3f} outside the skill's envelope [{lo:.3f}, {hi:.3f}]",
+                        "fault": True,
+                    }
                     self._cur = None
                     self._stand.reset()
                 return self._stand.act(obs, instruction=instruction)

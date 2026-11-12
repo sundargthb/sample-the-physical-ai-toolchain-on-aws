@@ -9,6 +9,7 @@ Rules, each enforced on the robot, whatever the planner sends:
   4. watchdog: if the commander of a running motion stops heartbeating, the arm holds where it is;
   5. motions are bounded (MAX_S) and run on the robot at 50 Hz, never one network round trip per tick.
 """
+
 from __future__ import annotations
 
 import os
@@ -31,10 +32,19 @@ class Device:
         self.lock = threading.Lock()
 
     def describe(self) -> dict:
-        return {"device": self.name, "zone": self.zone, "joints": self.arm.limits,
-                "skills": {k: {"seconds": v.get("seconds", sum(float(m[1]) for m in v.get("moves", []))), "does": v.get("does", "")}
-                           for k, v in self.skills.items()},
-                "rpcs": ["describe", "observe", "act", "skill", "status", "estop", "resume"]}
+        return {
+            "device": self.name,
+            "zone": self.zone,
+            "joints": self.arm.limits,
+            "skills": {
+                k: {
+                    "seconds": v.get("seconds", sum(float(m[1]) for m in v.get("moves", []))),
+                    "does": v.get("does", ""),
+                }
+                for k, v in self.skills.items()
+            },
+            "rpcs": ["describe", "observe", "act", "skill", "status", "estop", "resume"],
+        }
 
     def observe(self) -> dict:
         return {"positions": self.arm.positions(), "estopped": self.estopped, "task": self.status()}
@@ -120,7 +130,9 @@ class Device:
         try:
             if check is not None and why == "done":  # the postcondition, measured once, when the skill ends
                 task["check"] = check()
-            elif why == "done" and task.get("pose_target"):  # a scripted-move skill: did the joints reach its final pose?
+            elif why == "done" and task.get(
+                "pose_target"
+            ):  # a scripted-move skill: did the joints reach its final pose?
                 time.sleep(0.3)  # let the controller settle before reading
                 pos = self.arm.positions()
                 err = max(abs(pos[j] - v) for j, v in task["pose_target"].items())
@@ -148,10 +160,13 @@ class Device:
     def resume(self, operator: str, signature: str = "") -> dict:
         from cryptography.exceptions import InvalidSignature
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
         if not self.estopped:
             return {"estopped": False}
         try:  # rule 3: a signature over this device and this stop, by the operator's key
-            Ed25519PublicKey.from_public_bytes(self.operator_key).verify(bytes.fromhex(signature or ""), f"{self.name}:{self.epoch}".encode())
+            Ed25519PublicKey.from_public_bytes(self.operator_key).verify(
+                bytes.fromhex(signature or ""), f"{self.name}:{self.epoch}".encode()
+            )
         except (InvalidSignature, ValueError):
             raise PermissionError("resume needs the operator's signature for this stop; refused")
         self.estopped, self.epoch = False, None
@@ -159,25 +174,36 @@ class Device:
 
 
 class RosArm:
-    """ros2_control: limits from /robot_description, state from /joint_states, writes to a forward position controller."""
+    """ros2_control: limits from /robot_description, state from /joint_states, writes to a forward position
+    controller."""
 
     def __init__(self, controller: str = "forward_position_controller"):
         import rclpy
         from rclpy.qos import DurabilityPolicy, QoSProfile
         from sensor_msgs.msg import JointState
         from std_msgs.msg import Float64MultiArray, String
+
         rclpy.init()
         self.node, self.msg, self.state, urdf = rclpy.create_node("fleet_device"), Float64MultiArray, {}, []
-        self.node.create_subscription(String, "/robot_description", lambda m: urdf.append(m.data),
-                                      QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
-        self.node.create_subscription(JointState, "/joint_states", lambda m: self.state.update(zip(m.name, m.position)), 10)
+        self.node.create_subscription(
+            String,
+            "/robot_description",
+            lambda m: urdf.append(m.data),
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+        )
+        self.node.create_subscription(
+            JointState, "/joint_states", lambda m: self.state.update(zip(m.name, m.position)), 10
+        )
         self.pub = self.node.create_publisher(Float64MultiArray, f"/{controller}/commands", 10)
         threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True).start()
         while not (urdf and self.state):
             time.sleep(0.05)
         joints = ET.fromstring(urdf[0]).findall("joint")
-        self.limits = {j.get("name"): (float(j.find("limit").get("lower")), float(j.find("limit").get("upper")))
-                       for j in joints if j.find("limit") is not None}
+        self.limits = {
+            j.get("name"): (float(j.find("limit").get("lower")), float(j.find("limit").get("upper")))
+            for j in joints
+            if j.find("limit") is not None
+        }
         self.order = [j.get("name") for j in joints if j.get("name") in self.limits]  # the controller's joint order
         self.target = self.positions()
 
@@ -200,8 +226,17 @@ def announce(link, tenant: str, dev) -> tuple:
     topic = f"{tenant}/presence/{dev.name}"
 
     def publish() -> None:
-        link.publish(topic, {"device": dev.name, "zone": dev.zone, "skills": sorted(dev.skills), "estopped": dev.estopped,
-                             "ts": time.time()}, retain=True)
+        link.publish(
+            topic,
+            {
+                "device": dev.name,
+                "zone": dev.zone,
+                "skills": sorted(dev.skills),
+                "estopped": dev.estopped,
+                "ts": time.time(),
+            },
+            retain=True,
+        )
 
     publish()
     link.on_reconnect.append(publish)
@@ -219,11 +254,18 @@ def announce(link, tenant: str, dev) -> tuple:
 def serve(dev: Device, tenant: str = "site", stop: threading.Event | None = None) -> None:
     """Answer the device's rpcs over IoT Core, with its description published once (retained), until `stop` is set."""
     from iotlink import Link
+
     link = Link(f"robot-{dev.name}", tenant, will=f"{tenant}/presence/{dev.name}")
-    handlers = {"describe": lambda a, who: dev.describe(), "observe": lambda a, who: dev.observe(), "status": lambda a, who: dev.status(),
-                "act": lambda a, who: dev.act(a["targets"], a["seconds"], who), "skill": lambda a, who: dev.skill(a["name"], who),
-                "estop": lambda a, who: dev.estop(who), "resume": lambda a, who: dev.resume(a.get("operator", ""), a.get("signature", "")),
-                "epoch": lambda a, who: {"estopped": dev.estopped, "epoch": dev.epoch}}  # read-only: what the operator signs
+    handlers = {
+        "describe": lambda a, who: dev.describe(),
+        "observe": lambda a, who: dev.observe(),
+        "status": lambda a, who: dev.status(),
+        "act": lambda a, who: dev.act(a["targets"], a["seconds"], who),
+        "skill": lambda a, who: dev.skill(a["name"], who),
+        "estop": lambda a, who: dev.estop(who),
+        "resume": lambda a, who: dev.resume(a.get("operator", ""), a.get("signature", "")),
+        "epoch": lambda a, who: {"estopped": dev.estopped, "epoch": dev.epoch},
+    }  # read-only: what the operator signs
 
     def on_rpc(topic: str, req: dict) -> None:
         rpc, who = topic.rsplit("/", 1)[-1], req.get("from", "?")
@@ -232,7 +274,16 @@ def serve(dev: Device, tenant: str = "site", stop: threading.Event | None = None
         except Exception as exc:  # every refusal goes back to the caller, by name
             out = {"id": req["id"], "error": f"{type(exc).__name__}: {exc}"}
         link.publish(f"{tenant}/reply/{who}", out)
-        print(time.strftime("%H:%M:%S"), dev.name, rpc, "by", who, "->", "ok" if "result" in out else out["error"], flush=True)
+        print(
+            time.strftime("%H:%M:%S"),
+            dev.name,
+            rpc,
+            "by",
+            who,
+            "->",
+            "ok" if "result" in out else out["error"],
+            flush=True,
+        )
 
     link.subscribe(f"{tenant}/{dev.name}/rpc/+", on_rpc)
     link.subscribe(f"{tenant}/heartbeat/+", lambda t, b: dev.heartbeat(t.rsplit("/", 1)[-1]))
@@ -248,6 +299,7 @@ def serve(dev: Device, tenant: str = "site", stop: threading.Event | None = None
 
 def main() -> None:
     import json
+
     skills = json.loads(os.environ.get("SKILLS", "{}"))
     dev = Device(RosArm(), os.environ["DEVICE"], os.environ.get("ZONE", "cell"), skills, os.environ["OPERATOR_KEY"])
     print("device", dev.name, "up", dev.describe(), flush=True)
