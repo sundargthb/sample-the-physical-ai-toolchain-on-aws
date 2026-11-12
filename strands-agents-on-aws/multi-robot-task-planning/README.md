@@ -1,4 +1,4 @@
-# Fleet orchestration with Strands Agents, Amazon Bedrock AgentCore and AWS IoT Core
+# Multi-robot task planning with Strands Agents, Amazon Bedrock AgentCore and AWS IoT Core
 
 One goal in plain language, many kinds of robots, and every safety decision kept on the robot. A Strands Agents
 planner runs on Amazon Bedrock AgentCore Runtime and splits the goal across a fleet by what each robot can do and
@@ -7,7 +7,7 @@ skills locally and enforces safety rules that no command from the cloud can over
 command resumes a stopped robot.
 
 This is the hosted-runtime and IoT Core fleet path that this component's README lists as planned. The notebook,
-`fleet_orchestration.ipynb`, runs a ROS 2 arm on mock hardware and a simulated MuJoCo yard (a Unitree G1 and three
+`multi_robot_task_planning.ipynb`, runs a ROS 2 arm on mock hardware and a simulated MuJoCo yard (a Unitree G1 and three
 Pollen Robotics Microduck walkers) end to end, with its outputs saved from a full run. The same robot host drives two
 real SO-101 arms through LeRobot; that code is in `so101/`.
 
@@ -55,7 +55,7 @@ credentials; in production, give each robot its own X.509 certificate.
 5. Check the robot-side rules, then run the notebook from this folder:
 
        (cd fleet && python -m pytest -q test_safety.py)
-       jupyter notebook fleet_orchestration.ipynb
+       jupyter notebook multi_robot_task_planning.ipynb
 
 ## Send a goal yourself
 
